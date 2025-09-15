@@ -1,0 +1,1113 @@
+openapi: 3.0.3
+info:
+  title: Buddy Hunt API
+  description: Premium social streaming platform API
+  version: 1.0.0
+  contact:
+    name: Buddy Hunt Team
+    email: api@buddyhunt.com
+
+servers:
+  - url: https://api.buddyhunt.com/v1
+    description: Production server
+  - url: https://api-staging.buddyhunt.com/v1
+    description: Staging server
+  - url: http://localhost:3001/v1
+    description: Development server
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+          minLength: 3
+          maxLength: 20
+        displayName:
+          type: string
+          maxLength: 50
+        avatarUrl:
+          type: string
+          format: uri
+        bio:
+          type: string
+          maxLength: 500
+        isPremium:
+          type: boolean
+        lastSeen:
+          type: string
+          format: date-time
+        privacySettings:
+          $ref: '#/components/schemas/PrivacySettings'
+        preferences:
+          $ref: '#/components/schemas/UserPreferences'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    PrivacySettings:
+      type: object
+      properties:
+        profileVisibility:
+          type: string
+          enum: [public, friends, private]
+        onlineStatusVisibility:
+          type: boolean
+        allowFriendRequests:
+          type: boolean
+        allowDirectMessages:
+          type: string
+          enum: [everyone, friends, none]
+
+    UserPreferences:
+      type: object
+      properties:
+        notifications:
+          type: object
+          properties:
+            push:
+              type: boolean
+            email:
+              type: boolean
+            friendRequests:
+              type: boolean
+            messages:
+              type: boolean
+            roomInvites:
+              type: boolean
+        media:
+          type: object
+          properties:
+            autoPlayVideos:
+              type: boolean
+            highQualityStreams:
+              type: boolean
+            noiseCancellation:
+              type: boolean
+
+    Room:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 500
+        type:
+          type: string
+          enum: [cinema, mansion, private]
+        ownerId:
+          type: string
+          format: uuid
+        isPublic:
+          type: boolean
+        isActive:
+          type: boolean
+        maxParticipants:
+          type: integer
+          minimum: 1
+          maximum: 1000
+        currentParticipants:
+          type: integer
+        settings:
+          $ref: '#/components/schemas/RoomSettings'
+        region:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    RoomSettings:
+      type: object
+      properties:
+        allowScreenShare:
+          type: boolean
+        quality:
+          type: string
+          enum: [low, medium, high, ultra]
+        recordingEnabled:
+          type: boolean
+        watermarkEnabled:
+          type: boolean
+        moderation:
+          type: object
+          properties:
+            requireApproval:
+              type: boolean
+            muteNewParticipants:
+              type: boolean
+
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        senderId:
+          type: string
+          format: uuid
+        roomId:
+          type: string
+          format: uuid
+        recipientId:
+          type: string
+          format: uuid
+        content:
+          type: string
+        contentType:
+          type: string
+          enum: [text, image, file, gift, system]
+        isEncrypted:
+          type: boolean
+        metadata:
+          type: object
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    Gift:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        imageUrl:
+          type: string
+          format: uri
+        priceCredits:
+          type: integer
+          minimum: 1
+        category:
+          type: string
+        rarity:
+          type: string
+          enum: [common, rare, epic, legendary]
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+
+paths:
+  # Authentication Endpoints
+  /auth/register:
+    post:
+      tags: [Authentication]
+      summary: Register a new user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, username, password, displayName]
+              properties:
+                email:
+                  type: string
+                  format: email
+                username:
+                  type: string
+                  minLength: 3
+                  maxLength: 20
+                password:
+                  type: string
+                  minLength: 8
+                displayName:
+                  type: string
+                  maxLength: 50
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+                  accessToken:
+                    type: string
+                  refreshToken:
+                    type: string
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: User already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: Login user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+                  accessToken:
+                    type: string
+                  refreshToken:
+                    type: string
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/oauth/{provider}:
+    post:
+      tags: [Authentication]
+      summary: OAuth authentication
+      security: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [google, facebook, apple]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  description: OAuth provider token
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+                  accessToken:
+                    type: string
+                  refreshToken:
+                    type: string
+
+  # User Management
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Get current user profile
+      responses:
+        '200':
+          description: User profile retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+    patch:
+      tags: [Users]
+      summary: Update current user profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                displayName:
+                  type: string
+                  maxLength: 50
+                bio:
+                  type: string
+                  maxLength: 500
+                avatarUrl:
+                  type: string
+                  format: uri
+                privacySettings:
+                  $ref: '#/components/schemas/PrivacySettings'
+                preferences:
+                  $ref: '#/components/schemas/UserPreferences'
+      responses:
+        '200':
+          description: Profile updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+  /users/{userId}:
+    get:
+      tags: [Users]
+      summary: Get user profile by ID
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User profile retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          description: User not found
+
+  # Friendship Management
+  /friends/requests:
+    get:
+      tags: [Friends]
+      summary: Get pending friend requests
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [sent, received]
+            default: received
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Friend requests retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requests:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        user:
+                          $ref: '#/components/schemas/User'
+                        status:
+                          type: string
+                        createdAt:
+                          type: string
+                          format: date-time
+                  total:
+                    type: integer
+
+    post:
+      tags: [Friends]
+      summary: Send friend request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Friend request sent
+        '409':
+          description: Friend request already exists
+
+  /friends/requests/{requestId}/accept:
+    post:
+      tags: [Friends]
+      summary: Accept friend request
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Friend request accepted
+        '404':
+          description: Friend request not found
+
+  /friends/requests/{requestId}/reject:
+    post:
+      tags: [Friends]
+      summary: Reject friend request
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Friend request rejected
+        '404':
+          description: Friend request not found
+
+  # Room Management
+  /rooms:
+    get:
+      tags: [Rooms]
+      summary: List public rooms
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [cinema, mansion, private]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Rooms retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rooms:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Room'
+                  total:
+                    type: integer
+
+    post:
+      tags: [Rooms]
+      summary: Create a new room
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type]
+              properties:
+                name:
+                  type: string
+                  maxLength: 100
+                description:
+                  type: string
+                  maxLength: 500
+                type:
+                  type: string
+                  enum: [cinema, mansion, private]
+                isPublic:
+                  type: boolean
+                  default: true
+                maxParticipants:
+                  type: integer
+                  minimum: 1
+                  maximum: 1000
+                  default: 50
+                settings:
+                  $ref: '#/components/schemas/RoomSettings'
+      responses:
+        '201':
+          description: Room created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Room'
+
+  /rooms/{roomId}:
+    get:
+      tags: [Rooms]
+      summary: Get room details
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Room details retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Room'
+
+    patch:
+      tags: [Rooms]
+      summary: Update room details
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  maxLength: 100
+                description:
+                  type: string
+                  maxLength: 500
+                isPublic:
+                  type: boolean
+                settings:
+                  $ref: '#/components/schemas/RoomSettings'
+      responses:
+        '200':
+          description: Room updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Room'
+
+  /rooms/{roomId}/join:
+    post:
+      tags: [Rooms]
+      summary: Join a room
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mediaState:
+                  type: object
+                  properties:
+                    audio:
+                      type: boolean
+                      default: true
+                    video:
+                      type: boolean
+                      default: false
+                    screenShare:
+                      type: boolean
+                      default: false
+      responses:
+        '200':
+          description: Joined room successfully
+        '403':
+          description: Room is full or access denied
+
+  /rooms/{roomId}/leave:
+    post:
+      tags: [Rooms]
+      summary: Leave a room
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Left room successfully
+
+  # Messaging
+  /rooms/{roomId}/messages:
+    get:
+      tags: [Messages]
+      summary: Get room messages
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: before
+          in: query
+          description: Get messages before this timestamp
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Messages retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Message'
+                  hasMore:
+                    type: boolean
+
+    post:
+      tags: [Messages]
+      summary: Send message to room
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                  maxLength: 2000
+                contentType:
+                  type: string
+                  enum: [text, image, file, gift]
+                  default: text
+                parentId:
+                  type: string
+                  format: uuid
+                  description: Reply to message ID
+      responses:
+        '201':
+          description: Message sent successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+
+  # Direct Messages
+  /messages/direct:
+    get:
+      tags: [Messages]
+      summary: Get direct message conversations
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Conversations retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        participant:
+                          $ref: '#/components/schemas/User'
+                        lastMessage:
+                          $ref: '#/components/schemas/Message'
+                        unreadCount:
+                          type: integer
+
+  /messages/direct/{userId}:
+    get:
+      tags: [Messages]
+      summary: Get direct messages with user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: before
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Messages retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Message'
+                  hasMore:
+                    type: boolean
+
+    post:
+      tags: [Messages]
+      summary: Send direct message
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                  maxLength: 2000
+                isEncrypted:
+                  type: boolean
+                  default: true
+                ephemeral:
+                  type: boolean
+                  default: false
+                expiresIn:
+                  type: integer
+                  description: Seconds until message expires
+      responses:
+        '201':
+          description: Message sent successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+
+  # Virtual Gifts
+  /gifts/catalog:
+    get:
+      tags: [Gifts]
+      summary: Get gift catalog
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: rarity
+          in: query
+          schema:
+            type: string
+            enum: [common, rare, epic, legendary]
+      responses:
+        '200':
+          description: Gift catalog retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  gifts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Gift'
+
+  /gifts/send:
+    post:
+      tags: [Gifts]
+      summary: Send virtual gift
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [giftId, recipientId]
+              properties:
+                giftId:
+                  type: string
+                  format: uuid
+                recipientId:
+                  type: string
+                  format: uuid
+                roomId:
+                  type: string
+                  format: uuid
+                  description: Optional, for public gift giving
+      responses:
+        '201':
+          description: Gift sent successfully
+        '400':
+          description: Insufficient credits
+
+  # Credits
+  /credits/balance:
+    get:
+      tags: [Credits]
+      summary: Get current credit balance
+      responses:
+        '200':
+          description: Credit balance retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  balance:
+                    type: integer
+                  lifetimeEarned:
+                    type: integer
+                  lifetimeSpent:
+                    type: integer
+
+  /credits/transactions:
+    get:
+      tags: [Credits]
+      summary: Get credit transaction history
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [purchase, gift_received, gift_sent, bonus, refund]
+      responses:
+        '200':
+          description: Transaction history retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        type:
+                          type: string
+                        amount:
+                          type: integer
+                        balanceAfter:
+                          type: integer
+                        description:
+                          type: string
+                        createdAt:
+                          type: string
+                          format: date-time
+
+  # File Upload
+  /upload/avatar:
+    post:
+      tags: [Upload]
+      summary: Upload user avatar
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Avatar uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                    format: uri
+
+  # WebSocket Events Documentation
+  /events:
+    get:
+      tags: [WebSocket Events]
+      summary: WebSocket event documentation
+      security: []
+      responses:
+        '200':
+          description: WebSocket events documentation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: object
+                    properties:
+                      client_to_server:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            event:
+                              type: string
+                            description:
+                              type: string
+                            payload:
+                              type: object
+                        example:
+                          - event: "join-room"
+                            description: "Join a room for real-time communication"
+                            payload:
+                              roomId: "uuid"
+                              mediaState:
+                                audio: true
+                                video: false
+                          - event: "send-message"
+                            description: "Send a real-time message"
+                            payload:
+                              roomId: "uuid"
+                              content: "string"
+                          - event: "webrtc-offer"
+                            description: "Send WebRTC offer for peer connection"
+                            payload:
+                              targetUserId: "uuid"
+                              offer: "RTCSessionDescription"
+                      server_to_client:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            event:
+                              type: string
+                            description:
+                              type: string
+                            payload:
+                              type: object
+                        example:
+                          - event: "user-joined"
+                            description: "User joined the room"
+                            payload:
+                              user: "User object"
+                          - event: "new-message"
+                            description: "New message received"
+                            payload:
+                              message: "Message object"
+                          - event: "webrtc-offer"
+                            description: "Received WebRTC offer"
+                            payload:
+                              fromUserId: "uuid"
+                              offer: "RTCSessionDescription"

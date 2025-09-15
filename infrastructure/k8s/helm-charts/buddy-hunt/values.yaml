@@ -1,0 +1,433 @@
+# Buddy Hunt - Kubernetes Helm Chart Values
+# Production-ready configuration for auto-scaling social streaming platform
+
+global:
+  imageRegistry: "buddyhunt.azurecr.io"
+  imageTag: "latest"
+  environment: "production"
+  domain: "buddyhunt.com"
+  
+  # Multi-region deployment
+  regions:
+    - name: "us-east-1"
+      primary: true
+    - name: "eu-west-1" 
+      primary: false
+    - name: "ap-southeast-1"
+      primary: false
+
+# API Gateway / Load Balancer
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+  
+  hosts:
+    - host: api.buddyhunt.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: api-service
+    - host: ws.buddyhunt.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: websocket-service
+  
+  tls:
+    - secretName: buddyhunt-tls
+      hosts:
+        - api.buddyhunt.com
+        - ws.buddyhunt.com
+
+# Main API Service
+api:
+  enabled: true
+  replicaCount: 3
+  
+  image:
+    repository: "buddyhunt-api"
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "4Gi"
+  
+  # Horizontal Pod Autoscaler
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  # Liveness and Readiness Probes
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 3000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 3000
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 2
+  
+  service:
+    type: ClusterIP
+    port: 3000
+    targetPort: 3000
+  
+  env:
+    NODE_ENV: "production"
+    PORT: "3000"
+    LOG_LEVEL: "info"
+    
+    # Database
+    DATABASE_URL: "postgresql://username:password@postgres-primary:5432/buddyhunt"
+    DATABASE_POOL_SIZE: "20"
+    
+    # Redis
+    REDIS_URL: "redis://redis-cluster:6379"
+    
+    # JWT
+    JWT_SECRET: "your-super-secret-jwt-key"
+    JWT_EXPIRES_IN: "24h"
+    REFRESH_TOKEN_EXPIRES_IN: "30d"
+    
+    # External Services
+    AWS_REGION: "us-east-1"
+    S3_BUCKET: "buddyhunt-media"
+    
+    # WebRTC/Media
+    MEDIASOUP_ANNOUNCED_IP: "0.0.0.0"
+    TURN_SERVER_URL: "turn:turn.buddyhunt.com:3478"
+
+# WebSocket/Signaling Service
+websocket:
+  enabled: true
+  replicaCount: 3
+  
+  image:
+    repository: "buddyhunt-signaling"
+    tag: "latest"
+  
+  resources:
+    requests:
+      cpu: "300m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 15
+    targetCPUUtilizationPercentage: 70
+  
+  service:
+    type: ClusterIP
+    port: 3001
+  
+  # Socket.IO specific configurations
+  env:
+    SOCKET_IO_ADAPTER: "redis"
+    REDIS_HOST: "redis-cluster"
+    MAX_CONNECTIONS_PER_PROCESS: "10000"
+
+# Media/SFU Service (MediaSoup)
+sfu:
+  enabled: true
+  replicaCount: 2
+  
+  image:
+    repository: "buddyhunt-sfu"
+    tag: "latest"
+  
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "2Gi"
+    limits:
+      cpu: "4000m"
+      memory: "8Gi"
+  
+  # SFU needs more careful scaling due to media processing
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+    behavior:
+      scaleUp:
+        stabilizationWindowSeconds: 300
+        selectPolicy: Max
+        policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+      scaleDown:
+        stabilizationWindowSeconds: 300
+        selectPolicy: Min
+        policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+  
+  service:
+    type: NodePort  # Need external access for WebRTC
+    port: 3002
+    nodePort: 30002
+  
+  # Port range for WebRTC media
+  mediaPortRange:
+    min: 10000
+    max: 10100
+  
+  env:
+    MEDIASOUP_WORKERS: "4"
+    MEDIASOUP_LOG_LEVEL: "warn"
+    RTC_MIN_PORT: "10000"
+    RTC_MAX_PORT: "10100"
+
+# PostgreSQL Database
+postgresql:
+  enabled: true
+  architecture: replication
+  
+  primary:
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "2Gi"
+      limits:
+        cpu: "2000m"
+        memory: "8Gi"
+    
+    persistence:
+      enabled: true
+      size: "100Gi"
+      storageClass: "ssd-retain"
+    
+    configuration: |
+      # Memory Configuration
+      shared_buffers = '2GB'
+      work_mem = '64MB'
+      maintenance_work_mem = '512MB'
+      effective_cache_size = '6GB'
+      
+      # Connection Configuration
+      max_connections = 200
+      
+      # Write Ahead Logging
+      wal_buffers = '64MB'
+      checkpoint_completion_target = 0.9
+      checkpoint_timeout = '10min'
+      
+      # Query Planner
+      random_page_cost = 1.1
+      effective_io_concurrency = 200
+      
+      # Parallel Query
+      max_parallel_workers_per_gather = 4
+      max_parallel_workers = 8
+      max_parallel_maintenance_workers = 4
+  
+  readReplicas:
+    replicaCount: 2
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "1Gi"
+      limits:
+        cpu: "1000m"
+        memory: "4Gi"
+  
+  auth:
+    postgresPassword: "your-postgres-password"
+    database: "buddyhunt"
+    username: "buddyhunt_user"
+    password: "your-app-password"
+
+# Redis Cluster
+redis:
+  enabled: true
+  architecture: replication
+  
+  master:
+    count: 1
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "1Gi"
+      limits:
+        cpu: "1000m"
+        memory: "4Gi"
+    
+    persistence:
+      enabled: true
+      size: "20Gi"
+    
+    configuration: |
+      maxmemory-policy allkeys-lru
+      maxmemory 3gb
+      save 900 1
+      save 300 10
+      save 60 10000
+  
+  replica:
+    replicaCount: 2
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "2Gi"
+  
+  auth:
+    enabled: true
+    password: "your-redis-password"
+
+# Monitoring Stack
+monitoring:
+  prometheus:
+    enabled: true
+    retention: "15d"
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "2Gi"
+      limits:
+        cpu: "1000m"
+        memory: "8Gi"
+    
+    persistence:
+      enabled: true
+      size: "50Gi"
+  
+  grafana:
+    enabled: true
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+    
+    adminPassword: "your-grafana-password"
+    
+    dashboards:
+      - name: "api-dashboard"
+        url: "https://grafana.com/api/dashboards/13332/revisions/14/download"
+      - name: "redis-dashboard"
+        url: "https://grafana.com/api/dashboards/763/revisions/1/download"
+      - name: "postgresql-dashboard"
+        url: "https://grafana.com/api/dashboards/9628/revisions/7/download"
+
+# Log Aggregation
+logging:
+  fluentd:
+    enabled: true
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+  
+  elasticsearch:
+    enabled: true
+    masterNodes: 3
+    dataNodes: 2
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "2Gi"
+      limits:
+        cpu: "2000m"
+        memory: "8Gi"
+
+# Cost Optimization
+costOptimization:
+  # Cluster Autoscaler
+  clusterAutoscaler:
+    enabled: true
+    scaleDownDelay: "10m"
+    scaleDownUnneededTime: "10m"
+    skipNodesWithLocalStorage: false
+  
+  # Pod Disruption Budgets
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: "50%"
+  
+  # Resource Quotas
+  resourceQuotas:
+    enabled: true
+    hard:
+      requests.cpu: "50"
+      requests.memory: "100Gi"
+      limits.cpu: "100"
+      limits.memory: "200Gi"
+  
+  # Vertical Pod Autoscaler (for right-sizing)
+  verticalPodAutoscaler:
+    enabled: true
+    updateMode: "Auto"
+
+# Security Configuration
+security:
+  networkPolicy:
+    enabled: true
+    
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+  
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    capabilities:
+      drop:
+      - ALL
+  
+  # Service Mesh (Istio)
+  serviceMesh:
+    enabled: true
+    mtls: true
+    
+# Backup Configuration
+backup:
+  postgresql:
+    enabled: true
+    schedule: "0 2 * * *"  # Daily at 2 AM
+    retention: "30d"
+    s3Bucket: "buddyhunt-backups"
+  
+  redis:
+    enabled: true
+    schedule: "0 3 * * *"  # Daily at 3 AM
+    retention: "7d"
